@@ -1980,3 +1980,93 @@ void test(
     }
   }),
 );
+
+for (const [field, before, after] of [
+  ['name', 'foo', 'bar'],
+  ['main', 'a.js', 'b.js'],
+  ['type', 'commonjs', 'module'],
+  ['exports', {'.': './a.js'}, {'.': './b.js'}],
+  ['imports', {'#dep': './a.js'}, {'#dep': './b.js'}],
+] as const) {
+  void test(
+    `changing package.json ${field} makes script stale`,
+    rigTest(async ({rig}) => {
+      const cmdA = await rig.newCommand();
+      const packageJson = (value: unknown) => ({
+        [field]: value,
+        scripts: {
+          a: 'wireit',
+        },
+        wireit: {
+          a: {
+            command: cmdA.command,
+            files: [],
+            output: [],
+          },
+        },
+      });
+      await rig.write({'package.json': packageJson(before)});
+
+      // Initially stale.
+      {
+        const exec = rig.exec('npm run a');
+        const inv = await cmdA.nextInvocation();
+        inv.exit(0);
+        const res = await exec.exit;
+        assert.equal(res.code, 0);
+        assert.equal(cmdA.numInvocations, 1);
+      }
+
+      // Change the field, now stale.
+      await rig.write({'package.json': packageJson(after)});
+      {
+        const exec = rig.exec('npm run a');
+        const inv = await cmdA.nextInvocation();
+        inv.exit(0);
+        const res = await exec.exit;
+        assert.equal(res.code, 0);
+        assert.equal(cmdA.numInvocations, 2);
+      }
+    }),
+  );
+}
+
+void test(
+  'changing other package.json fields does not make script stale',
+  rigTest(async ({rig}) => {
+    const cmdA = await rig.newCommand();
+    const packageJson = (description: string) => ({
+      description,
+      scripts: {
+        a: 'wireit',
+      },
+      wireit: {
+        a: {
+          command: cmdA.command,
+          files: [],
+          output: [],
+        },
+      },
+    });
+    await rig.write({'package.json': packageJson('v0')});
+
+    // Initially stale.
+    {
+      const exec = rig.exec('npm run a');
+      const inv = await cmdA.nextInvocation();
+      inv.exit(0);
+      const res = await exec.exit;
+      assert.equal(res.code, 0);
+      assert.equal(cmdA.numInvocations, 1);
+    }
+
+    // Change the description, still fresh.
+    await rig.write({'package.json': packageJson('v1')});
+    {
+      const exec = rig.exec('npm run a');
+      const res = await exec.exit;
+      assert.equal(res.code, 0);
+      assert.equal(cmdA.numInvocations, 1);
+    }
+  }),
+);
